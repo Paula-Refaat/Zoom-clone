@@ -1,30 +1,24 @@
-const http = require("http");
-const socketIO = require("socket.io");
 const express = require("express");
-const { ExpressPeerServer } = require("peer");
-const { v4: uuidV4 } = require("uuid");
-
 const app = express();
-const server = http.createServer(app);
-const io = socketIO(server);
-const cors = require("cors");
-app.use(cors());
+const server = require("http").Server(app);
+const { v4: uuidv4 } = require("uuid");
+const io = require("socket.io")(server);
 
-const peerServer = ExpressPeerServer(server, { debug: true });
+// Peer-WebRTC
+const { ExpressPeerServer } = require("peer");
+const peerServer = ExpressPeerServer(server, {
+  debug: true,
+});
 
-// Middleware
+app.set("view engine", "ejs");
 app.use(express.static("public"));
 app.use("/peerjs", peerServer);
 
-// View engine setup
-app.set("view engine", "ejs");
-
-// Routes
 app.get("/", (req, res) => {
-  res.redirect(`/${uuidV4()}`);
+  res.redirect(`/${uuidv4()}`);
 });
 
-app.get("/leavingMetting", (req, res) => {
+app.get("/h", (req, res) => {
   res.send("You Are Left Metting Succsufully");
 });
 
@@ -32,32 +26,25 @@ app.get("/:room", (req, res) => {
   res.render("room", { roomId: req.params.room });
 });
 
-// Socket.io handling
+// Joining Metting.
 io.on("connection", (socket) => {
   socket.on("join-room", (roomId, userId) => {
     socket.join(roomId);
-    socket.to(roomId).emit("user-connected", userId);
+    socket.to(roomId).broadcast.emit("user-connected", userId);
 
-    // Listen for leave-meeting signal
-    socket.on("leave-meeting", (roomId, userId) => {
-      // Handle cleanup or additional logic when a user leaves
-      // For example, you can broadcast a message indicating the user has left
-      io.to(roomId).emit("user-left", userId);
-    });
-
-    // Messageschat
+    // Send Message In The ChatRoom
     socket.on("message", (message) => {
       io.to(roomId).emit("createMessage", message);
     });
-
+    // Handle the "disconnect" event
     socket.on("disconnect", () => {
-      socket.to(roomId).emit("user-disconnected", userId);
+      // Notify others in the room about the disconnection
+      io.to(roomId).emit("user-disconnected", userId);
+
+      // Broadcast the "removeVideo" event to remove the user's video stream from other participants
+      io.to(roomId).emit("removeVideo", userId);
     });
   });
 });
 
-// Start the server
-const PORT = process.env.PORT || 8000;
-server.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
-});
+server.listen(process.env.PORT || 3030);
