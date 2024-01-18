@@ -166,6 +166,19 @@ function redirectToHomePage() {
   window.location.href = "/h";
 }
 
+// Listen for the "removeVideo" event and remove the video element
+socket.on("removeVideo", (userId) => {
+  removeVideoStream(userId);
+});
+
+// Function to remove a video stream from the page
+const removeVideoStream = (userId) => {
+  const video = document.getElementById(userId);
+  if (video) {
+    video.remove();
+  }
+};
+
 // Toggle the user's video on and off
 const playStop = () => {
   let enabled = myVideoStream.getVideoTracks()[0].enabled;
@@ -177,19 +190,6 @@ const playStop = () => {
     myVideoStream.getVideoTracks()[0].enabled = true;
   }
 };
-
-// Function to remove a video stream from the page
-const removeVideoStream = (userId) => {
-  const video = document.getElementById(userId);
-  if (video) {
-    video.remove();
-  }
-};
-
-// Listen for the "removeVideo" event and remove the video element
-socket.on("removeVideo", (userId) => {
-  removeVideoStream(userId);
-});
 
 // Toggle the user's microphone on and off
 const muteUnmute = () => {
