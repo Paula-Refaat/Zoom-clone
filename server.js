@@ -42,7 +42,7 @@ io.on("connection", (socket) => {
       io.to(roomId).emit("user-disconnected", userId);
 
       // Broadcast the "removeVideo" event to remove the user's video stream from other participants
-      io.to(roomId).emit("removeVideo", userId);
+      socket.to(roomId).broadcast.emit("removeVideo", userId);
     });
   });
 });
