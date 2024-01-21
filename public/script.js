@@ -8,10 +8,10 @@ const myVideo = document.createElement("video");
 myVideo.muted = true;
 
 // Initialize a new Peer object for WebRTC communication
-const peer = new Peer(undefined, {
+var peer = new Peer(undefined, {
   path: "/peerjs",
-  host: "/",
-  port: "443",
+  host: location.hostname,
+  port: location.port || (location.protocol === "https:" ? 443 : 80),
 });
 
 let myVideoStream;
