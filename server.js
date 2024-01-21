@@ -26,7 +26,7 @@ app.get("/:room", (req, res) => {
   res.render("room", { roomId: req.params.room });
 });
 
-// Joining Metting.
+// Joining Meeting.
 io.on("connection", (socket) => {
   socket.on("join-room", (roomId, userId) => {
     socket.join(roomId);
@@ -36,13 +36,10 @@ io.on("connection", (socket) => {
     socket.on("message", (message) => {
       io.to(roomId).emit("createMessage", message);
     });
-    // Handle the "disconnect" event
-    socket.on("disconnect", () => {
-      // Notify others in the room about the disconnection
-      io.to(roomId).emit("user-disconnected", userId);
 
-      // Broadcast the "removeVideo" event to remove the user's video stream from other participants
-      socket.to(roomId).broadcast.emit("removeVideo", userId);
+    // Listen for user disconnection
+    socket.on("disconnect", () => {
+      io.to(roomId).emit("user-disconnected", userId);
     });
   });
 });

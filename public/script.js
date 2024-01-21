@@ -1,22 +1,23 @@
 const socket = io("/");
 const chatInputBox = document.getElementById("chat_message");
-const all_messages = document.getElementById("all_messages");
-const main__chat__window = document.getElementById("main__chat__window");
+const allMessages = document.getElementById("all_messages");
+const mainChatWindow = document.getElementById("main__chat__window");
 const videoGrid = document.getElementById("video-grid");
 const leaveMeetingButton = document.getElementById("leave-meeting");
 const myVideo = document.createElement("video");
 myVideo.muted = true;
 
 // Initialize a new Peer object for WebRTC communication
-var peer = new Peer(undefined, {
+const peer = new Peer(undefined, {
   path: "/peerjs",
   host: "/",
   port: "443",
 });
 
 let myVideoStream;
+let userId; // Ensure userId is defined
 
-var getUserMedia =
+const getUserMedia =
   navigator.getUserMedia ||
   navigator.webkitGetUserMedia ||
   navigator.mozGetUserMedia;
@@ -29,7 +30,9 @@ navigator.mediaDevices
   })
   .then((stream) => {
     myVideoStream = stream;
-    addVideoStream(myVideo, stream);
+    // Set userId before calling addVideoStream
+    userId = peer.id;
+    addVideoStream(myVideo, stream, userId);
 
     // Listen for incoming calls and answer with the user's stream
     peer.on("call", (call) => {
@@ -38,18 +41,18 @@ navigator.mediaDevices
 
       // Display the remote user's video stream
       call.on("stream", (userVideoStream) => {
-        addVideoStream(video, userVideoStream);
+        addVideoStream(video, userVideoStream, call.peer); // Use call.peer as userId
       });
     });
 
     // Listen for a "user-connected" event and connect to the new user
-    socket.on("user-connected", (userId) => {
-      connectToNewUser(userId, stream);
+    socket.on("user-connected", (connectedUserId) => {
+      connectToNewUser(connectedUserId, stream);
     });
 
     // Listen for keyboard events and send a message when the Enter key is pressed
     document.addEventListener("keydown", (e) => {
-      if (e.which === 13 && chatInputBox.value != "") {
+      if (e.which === 13 && chatInputBox.value !== "") {
         socket.emit("message", chatInputBox.value);
         chatInputBox.value = "";
       }
@@ -58,10 +61,10 @@ navigator.mediaDevices
     // Listen for incoming chat messages and display them on the page
     socket.on("createMessage", (msg) => {
       console.log(msg);
-      let li = document.createElement("li");
+      const li = document.createElement("li");
       li.innerHTML = msg;
-      all_messages.append(li);
-      main__chat__window.scrollTop = main__chat__window.scrollHeight;
+      allMessages.append(li);
+      mainChatWindow.scrollTop = mainChatWindow.scrollHeight;
     });
   });
 
@@ -75,7 +78,7 @@ peer.on("call", function (call) {
 
       // Display the remote user's video stream
       call.on("stream", function (remoteStream) {
-        addVideoStream(video, remoteStream);
+        addVideoStream(video, remoteStream, call.peer);
       });
     },
     function (err) {
@@ -92,24 +95,25 @@ peer.on("open", (id) => {
 // CHAT
 // Function to connect to a new user and share the local stream
 const connectToNewUser = (userId, streams) => {
-  var call = peer.call(userId, streams);
+  const call = peer.call(userId, streams);
   console.log(call);
-  var video = document.createElement("video");
+  const video = document.createElement("video");
   call.on("stream", (userVideoStream) => {
     console.log(userVideoStream);
-    addVideoStream(video, userVideoStream);
+    addVideoStream(video, userVideoStream, userId);
   });
 };
 
-// // Function to add a video stream to the page
-const addVideoStream = (videoEl, stream) => {
+// Function to add a video stream to the page
+const addVideoStream = (videoEl, stream, userId) => {
   videoEl.srcObject = stream;
+  videoEl.setAttribute("data-peer-id", userId); // Set the data-peer-id attribute
   videoEl.addEventListener("loadedmetadata", () => {
     videoEl.play();
   });
 
   videoGrid.append(videoEl);
-  let totalUsers = document.getElementsByTagName("video").length;
+  const totalUsers = document.getElementsByTagName("video").length;
   if (totalUsers > 1) {
     for (let index = 0; index < totalUsers; index++) {
       document.getElementsByTagName("video")[index].style.width =
@@ -118,35 +122,15 @@ const addVideoStream = (videoEl, stream) => {
   }
 };
 
-// Listen for the "user-disconnected" event from the server
+leaveMeetingButton.addEventListener("click", leaveMeeting);
+
 socket.on("user-disconnected", (userId) => {
-  // Remove the video element associated with the disconnected user
   removeVideoStream(userId);
 });
 
-// Listen for the "disconnect" event from the server
-socket.on("disconnect", () => {
-  // Handle disconnection, for example, redirect to a home page or display a message
-  console.log("You have left the meeting.");
-  // You might want to implement further actions here, depending on your application's needs.
-});
-
-leaveMeetingButton.addEventListener("click", leaveMeeting);
-
 function leaveMeeting() {
-  // Close the Peer connection
   disconnectPeer();
-
-  // Remove the local video element
   removeLocalVideo();
-
-  // Stop the user's video stream
-  stopUserVideoStream();
-
-  // Remove the user's video element from the grid
-  removeVideoStream(socket.id);
-
-  // Redirect to the home page
   redirectToHomePage();
 }
 
@@ -158,30 +142,37 @@ function removeLocalVideo() {
   myVideo.remove();
 }
 
-function stopUserVideoStream() {
-  myVideoStream.getTracks().forEach((track) => track.stop());
-}
-
 function redirectToHomePage() {
   window.location.href = "/h";
 }
 
-// Listen for the "removeVideo" event and remove the video element
-socket.on("removeVideo", (userId) => {
-  removeVideoStream(userId);
-});
+function removeVideoStream(userId) {
+  console.log(`Removing video stream for user: ${userId}`);
+  const video = document.querySelector(`[data-peer-id="${userId}"]`);
 
-// Function to remove a video stream from the page
-const removeVideoStream = (userId) => {
-  const video = document.getElementById(userId);
   if (video) {
-    video.remove();
+    try {
+      const tracks = video.srcObject?.getTracks();
+
+      if (tracks && tracks.length > 0) {
+        tracks.forEach((track) => track.stop());
+      }
+
+      video.srcObject = null;
+      video.pause();
+      video.remove();
+      console.log(`Video stream removed successfully for user: ${userId}`);
+    } catch (error) {
+      console.error(`Error removing video stream for user ${userId}:`, error);
+    }
+  } else {
+    console.warn(`No video element found for user: ${userId}`);
   }
-};
+}
 
 // Toggle the user's video on and off
 const playStop = () => {
-  let enabled = myVideoStream.getVideoTracks()[0].enabled;
+  const enabled = myVideoStream.getVideoTracks()[0].enabled;
   if (enabled) {
     myVideoStream.getVideoTracks()[0].enabled = false;
     setPlayVideo();
@@ -193,7 +184,7 @@ const playStop = () => {
 
 // Toggle the user's microphone on and off
 const muteUnmute = () => {
-  let enabled = myVideoStream.getAudioTracks()[0].enabled;
+  const enabled = myVideoStream.getAudioTracks()[0].enabled;
   if (enabled) {
     myVideoStream.getAudioTracks()[0].enabled = false;
     setUnmuteButton();
