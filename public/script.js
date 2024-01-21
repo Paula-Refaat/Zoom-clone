@@ -5,6 +5,7 @@ const mainChatWindow = document.getElementById("main__chat__window");
 const videoGrid = document.getElementById("video-grid");
 const leaveMeetingButton = document.getElementById("leave-meeting");
 const myVideo = document.createElement("video");
+const screenShareButton = document.getElementById("screenShareButton");
 myVideo.muted = true;
 
 // Initialize a new Peer object for WebRTC communication
@@ -16,6 +17,8 @@ var peer = new Peer(undefined, {
 
 let myVideoStream;
 let userId; // Ensure userId is defined
+let screenStream = null; // Variable to store the screen sharing stream
+let screenSharingStream = null;
 
 const getUserMedia =
   navigator.getUserMedia ||
@@ -121,6 +124,117 @@ const addVideoStream = (videoEl, stream, userId) => {
     }
   }
 };
+
+// Event listener for the screen share button
+screenShareButton.addEventListener("click", () => {
+  if (!screenSharingStream) {
+    navigator.mediaDevices
+      .getDisplayMedia({ video: true })
+      .then((stream) => {
+        screenSharingStream = stream;
+
+        // Broadcast the screen share to all participants
+        socket.emit("screen-share", ROOM_ID, peer.id, screenSharingStream);
+
+        // Replace user's video stream with screen sharing stream
+        const userVideo = document.querySelector(`[data-peer-id="${peer.id}"]`);
+        userVideo.srcObject = screenSharingStream;
+
+        // Listen for user stopping screen sharing
+        screenSharingStream
+          .getVideoTracks()[0]
+          .addEventListener("ended", () => {
+            stopScreenSharing();
+          });
+      })
+      .catch((error) => {
+        console.error("Error accessing screen:", error);
+      });
+  } else {
+    stopScreenSharing();
+  }
+});
+
+// // Function to stop screen sharing
+// function stopScreenSharing() {
+//   if (screenSharingStream) {
+//     // Restore user's original video stream
+//     const userVideo = document.querySelector(`[data-peer-id="${peer.id}"]`);
+//     userVideo.srcObject = myVideoStream;
+
+//     // Remove the screen sharing video from the grid
+//     const screenSharingVideo = document.querySelector(
+//       `[data-peer-id="${peer.id}-screen"]`
+//     );
+//     if (screenSharingVideo) {
+//       removeVideoStream(`${peer.id}-screen`);
+//     }
+
+//     // Stop and reset the screen sharing stream
+//     const tracks = screenSharingStream.getTracks();
+//     tracks.forEach((track) => track.stop());
+//     screenSharingStream = null;
+
+//     // Broadcast the screen share stop event to other participants
+//     socket.emit("screen-share-stop", ROOM_ID, peer.id);
+//   }
+// }
+
+// Function to stop screen sharing
+function stopScreenSharing() {
+  if (screenSharingStream) {
+    // Restore user's original video stream
+    const userVideo = document.querySelector(`[data-peer-id="${peer.id}"]`);
+    userVideo.srcObject = myVideoStream;
+
+    // Remove the screen sharing video from the grid
+    const screenSharingVideo = document.querySelector(
+      `[data-peer-id="${peer.id}-screen"]`
+    );
+    if (screenSharingVideo) {
+      removeVideoStream(`${peer.id}-screen`);
+    }
+
+    // Stop and reset the screen sharing stream
+    const tracks = screenSharingStream.getTracks();
+    tracks.forEach((track) => track.stop());
+    screenSharingStream = null;
+
+    // Broadcast the screen share stop event to other participants
+    socket.emit("screen-share-stop", ROOM_ID, peer.id);
+  }
+}
+
+// Listen for incoming screen share
+socket.on("screen-share", (userId, screenStream) => {
+  const userVideo = document.querySelector(`[data-peer-id="${userId}"]`);
+
+  if (userVideo) {
+    // Store the original video stream to revert back later
+    const originalStream = userVideo.srcObject;
+
+    // Replace user's video stream with screen sharing stream
+    userVideo.srcObject = screenStream;
+
+    // Listen for user stopping screen sharing
+    screenStream.getVideoTracks()[0].addEventListener("ended", () => {
+      // Revert back to the original video stream when screen sharing stops
+      userVideo.srcObject = originalStream;
+      stopScreenSharing(userId);
+    });
+  }
+});
+
+// Listen for screen share stop event
+socket.on("screen-share-stop", (userId) => {
+  console.log(`Screen share stopped for user: ${userId}`);
+  const userVideo = document.querySelector(`[data-peer-id="${userId}"]`);
+
+  if (userVideo) {
+    // Revert the user's video stream back to the original stream
+    userVideo.srcObject = myVideoStream;
+  }
+});
 
 leaveMeetingButton.addEventListener("click", leaveMeeting);
 
