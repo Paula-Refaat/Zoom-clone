@@ -1,89 +1,129 @@
+require("dotenv").config({});
 const express = require("express");
+const http = require("http");
 const app = express();
-const server = require("http").Server(app);
-const { v4: uuidv4 } = require("uuid");
-const io = require("socket.io")(server);
+const server = http.createServer(app);
+const mongoose = require("mongoose");
+const jwt = require("jsonwebtoken");
+const cors = require("cors");
+const path = require("path");
 
-// Peer-WebRTC
-const { ExpressPeerServer } = require("peer");
-const peerServer = ExpressPeerServer(server, {
-  debug: true,
+const User = require("./models/UserModal");
+
+const PORT = 8000;
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(
+  cors({
+    origin: process.env.CORS_ORIGIN,
+  })
+);
+
+//For deploy only
+app.use(express.static(path.join('public')));
+
+app.use("/user", require("./routes/user"));
+
+//Database connection
+mongoose.connect(process.env.DATABASE, {
+  useUnifiedTopology: true,
+  useNewUrlParser: true,
+});
+mongoose.connection.on("error", (error) => {
+  console.err("Mongoose Connection Error: " + error.message);
+});
+mongoose.connection.once("open", () => {
+  console.log("Mongodb connected!");
 });
 
-app.set("view engine", "ejs");
-app.use(express.static("public"));
-app.use("/peerjs", peerServer);
+//for deploy only
 
-app.get("/", (req, res) => {
-  res.redirect(`/${uuidv4()}`);
+app.use((req, res, next) => {
+  res.sendFile(path.resolve(__dirname, "public", "index.html"));
 });
 
-app.get("/h", (req, res) => {
-  res.send("You Left the Meeting Successfully");
+server.listen(process.env.PORT || PORT, () => {
+  console.log("server is running on port " + PORT);
 });
 
-app.get("/:room", (req, res) => {
-  res.render("room", { roomId: req.params.room });
+//Socket
+const socket = require("socket.io");
+const io = socket(server);
+
+const usersInRoom = {}; //all user(socket id) connected to a chatroom
+const socketToRoom = {}; //roomId in which a socket id is connected
+
+//verifying token
+io.use(async (socket, next) => {
+  try {
+    const token = socket.handshake.query.token;
+    const payload = await jwt.verify(token, process.env.SECRET);
+    socket.userId = payload;
+    const user = await User.findOne({ _id: socket.userId }).select("-password");
+    socket.username = user.username;
+    socket.name = user.name;
+    next();
+  } catch (error) {
+    console.log(error);
+  }
 });
 
-const screenSharingStreams = new Map();
-
-// Joining Meeting.
 io.on("connection", (socket) => {
-  socket.on("join-room", (roomId, userId) => {
-    socket.join(roomId);
-    socket.to(roomId).broadcast.emit("user-connected", userId);
+  console.log("Some one joined socketId: " + socket.id);
+  socket.on("joinRoom", (roomId) => {
+    // console.log('Joined roomId: ' + roomId + " socketId: " + socket.id + ' userId: ' + socket.userId);
+    if (usersInRoom[roomId]) {
+      usersInRoom[roomId].push(socket.id);
+    } else {
+      usersInRoom[roomId] = [socket.id];
+    }
+    socketToRoom[socket.id] = roomId;
+    const usersInThisRoom = usersInRoom[roomId].filter(
+      (id) => id !== socket.id
+    );
+    socket.join(roomId); //for message
+    socket.emit("usersInRoom", usersInThisRoom); //sending all socket id already joined user in this room
+  });
 
-    // let screenStream = null;
-
-    // Handle incoming calls
-    peerServer.on("call", (incomingCall) => {
-      if (incomingCall.metadata.videoType === "screen") {
-        screenStream = incomingCall;
-        screenSharingStreams.set(userId, screenStream);
-      }
-    });
-
-    // Handle screen share event
-    socket.on("screen-share", (roomId, userId, screenStreamId) => {
-      let screenStream = null;
-
-      // If screenStreamId is provided, use the existing screenStream
-      if (screenStreamId) {
-        screenStream = screenSharingStreams.get(userId);
-      } else {
-        // If no screenStreamId, it's a new screen share, capture the stream
-        const existingScreenStream = screenSharingStreams.get(userId);
-        if (existingScreenStream) {
-          screenStream = existingScreenStream;
-        }
-      }
-
-      // Broadcast the screen share to all participants in the room
-      if (screenStream && screenStream.stream) {
-        io.to(roomId).emit("screen-share", userId, screenStream.stream);
-      }
-    });
-
-    // Handle screen share stop event
-    socket.on("screen-share-stop", (roomId, userId) => {
-      console.log(`Screen share stopped for user: ${userId}`);
-      // Remove the screen-sharing stream from the map
-      screenSharingStreams.delete(userId);
-      // Broadcast the screen share stop event to other participants with the correct user ID
-      io.to(roomId).emit("screen-share-stop", userId);
-    });
-
-    // Send Message In The ChatRoom
-    socket.on("message", (message) => {
-      io.to(roomId).emit("createMessage", message);
-    });
-
-    // Listen for user disconnection
-    socket.on("disconnect", () => {
-      io.to(roomId).emit("user-disconnected", userId);
+  //client send this signal to sever and sever will send to other user of peerId(callerId is peer id)
+  socket.on("sendingSignal", (payload) => {
+    console.log("console.log before sending userJoined", payload.callerId);
+    io.to(payload.userIdToSendSignal).emit("userJoined", {
+      signal: payload.signal,
+      callerId: payload.callerId,
     });
   });
-});
 
-server.listen(process.env.PORT || 3030);
+  //client site receive signal of other peer and it sending its own signal for other member
+  socket.on("returningSignal", (payload) => {
+    io.to(payload.callerId).emit("takingReturnedSignal", {
+      signal: payload.signal,
+      id: socket.id,
+    });
+  });
+
+  //from client send message to send all other connected user of same room
+  socket.on("sendMessage", (payload) => {
+    //sending message to all other connected user at same room
+    io.to(payload.roomId).emit("receiveMessage", {
+      message: payload.message,
+      name: socket.name,
+      username: socket.username,
+    });
+  });
+
+  //someone left room
+  socket.on("disconnect", () => {
+    const roomId = socketToRoom[socket.id];
+    let socketsIdConnectedToRoom = usersInRoom[roomId];
+    if (socketsIdConnectedToRoom) {
+      socketsIdConnectedToRoom = socketsIdConnectedToRoom.filter(
+        (id) => id !== socket.id
+      );
+      usersInRoom[roomId] = socketsIdConnectedToRoom;
+    }
+    socket.leave(roomId); //for message group(socket)
+    socket.broadcast.emit("userLeft", socket.id); //sending socket id to all other connected user of same room without its own
+  });
+});
