@@ -34,8 +34,13 @@ app.use("/auth", userRoute);
 //   res.sendFile(path.resolve(__dirname, "client/public", "index.html"));
 // });
 
+<<<<<<< HEAD
 const server = CompleteServer.listen(process.env.PORT || 8000, () => {
   console.log("server is running on port " + process.env.PORT);
+=======
+app.use((req, res, next) => {
+  res.sendFile(path.resolve(__dirname, "client/public", "index.html"));
+>>>>>>> 5acec470d43b4d1e0bd618a41891492d288a4cc7
 });
 
 process.on("unhandledRejection", (error) => {
