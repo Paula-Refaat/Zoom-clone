@@ -18,7 +18,7 @@ const RegisterScreen = (props) => {
     const password = passwordRef.current.value;
 
     axios
-      .post(`${process.env.REACT_APP_BASE_URL}/user/register`, {
+      .post(`${process.env.REACT_APP_BASE_URL}/auth/register`, {
         name,
         username,
         email,
