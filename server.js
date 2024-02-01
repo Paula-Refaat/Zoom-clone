@@ -40,7 +40,7 @@ mongoose.connection.once("open", () => {
 //for deploy only
 
 app.use((req, res, next) => {
-  res.sendFile(path.resolve(__dirname, "public", "index.html"));
+  res.sendFile(path.resolve(__dirname, "client/public", "index.html"));
 });
 
 server.listen(process.env.PORT || PORT, () => {
